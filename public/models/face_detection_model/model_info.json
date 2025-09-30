@@ -1,0 +1,30 @@
+{
+  "name": "YOLOv8n Face Detection",
+  "version": "1.0.0",
+  "description": "基于YOLOv8n的人脸检测模型，适用于餐厅场景",
+  "input_shape": [1, 640, 640, 3],
+  "output_shape": [1, 25200, 6],
+  "classes": ["face"],
+  "confidence_threshold": 0.5,
+  "iou_threshold": 0.4,
+  "max_detections": 10,
+  "preprocessing": {
+    "normalize": true,
+    "mean": [0, 0, 0],
+    "std": [255, 255, 255]
+  },
+  "postprocessing": {
+    "format": "yolo",
+    "bbox_format": "xywh_center",
+    "output_format": "[x, y, w, h, confidence, class]"
+  },
+  "model_url": "https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8n-face.onnx",
+  "converted_from": "ONNX",
+  "framework": "TensorFlow.js",
+  "size_mb": 6.2,
+  "inference_time_ms": 45,
+  "accuracy": {
+    "mAP50": 0.85,
+    "mAP50_95": 0.72
+  }
+}

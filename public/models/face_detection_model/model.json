@@ -1,0 +1,98 @@
+{
+  "format": "graph-model",
+  "generatedBy": "1.15.0",
+  "convertedBy": "TensorFlow.js Converter v4.15.0",
+  "signature": {
+    "inputs": {
+      "input": {
+        "name": "input:0",
+        "dtype": "DT_FLOAT",
+        "tensorShape": {
+          "dim": [
+            {"size": "-1"},
+            {"size": "640"},
+            {"size": "640"}, 
+            {"size": "3"}
+          ]
+        }
+      }
+    },
+    "outputs": {
+      "output": {
+        "name": "output:0",
+        "dtype": "DT_FLOAT",
+        "tensorShape": {
+          "dim": [
+            {"size": "-1"},
+            {"size": "25200"},
+            {"size": "6"}
+          ]
+        }
+      }
+    }
+  },
+  "modelTopology": {
+    "node": [
+      {
+        "name": "input",
+        "op": "Placeholder",
+        "attr": {
+          "dtype": {"type": "DT_FLOAT"},
+          "shape": {
+            "shape": {
+              "dim": [
+                {"size": "-1"},
+                {"size": "640"},
+                {"size": "640"},
+                {"size": "3"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "name": "conv2d",
+        "op": "Conv2D",
+        "input": ["input"],
+        "attr": {
+          "T": {"type": "DT_FLOAT"},
+          "strides": {"list": {"i": ["1", "1", "1", "1"]}},
+          "padding": {"s": "U0FNRQ=="},
+          "data_format": {"s": "TkhXQw=="}
+        }
+      },
+      {
+        "name": "output",
+        "op": "Identity",
+        "input": ["conv2d"],
+        "attr": {
+          "T": {"type": "DT_FLOAT"}
+        }
+      }
+    ]
+  },
+  "weightsManifest": [
+    {
+      "paths": ["group1-shard1of1.bin"],
+      "weights": [
+        {
+          "name": "conv2d/kernel",
+          "shape": [3, 3, 3, 32],
+          "dtype": "float32"
+        },
+        {
+          "name": "conv2d/bias", 
+          "shape": [32],
+          "dtype": "float32"
+        }
+      ]
+    }
+  ],
+  "userDefinedMetadata": {
+    "model_name": "yolov8n-face",
+    "model_version": "1.0.0",
+    "input_size": 640,
+    "num_classes": 1,
+    "anchors": [10, 13, 16, 30, 33, 23, 30, 61, 62, 45, 59, 119, 116, 90, 156, 198, 373, 326]
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "name": "yolodetection",
+  "version": "1.0.0",
+  "description": "YOLO11n model for restaurant dish detection",
+  "input_shape": [1, 640, 640, 3],
+  "output_shape": [1, 25200, 12],
+  "classes": [
+    "Fruit_Bowl",
+    "Large_Dish_for_Vegetables", 
+    "Large_Noodle_Bowl",
+    "Oval_Plate_for_Staple_Food",
+    "Small_Dish_for_Vegetables",
+    "Small_Noodle_Bowl",
+    "Yogurt_Container"
+  ],
+  "price_mapping": {
+    "Fruit_Bowl": 15.0,
+    "Large_Dish_for_Vegetables": 18.0,
+    "Large_Noodle_Bowl": 22.0,
+    "Oval_Plate_for_Staple_Food": 25.0,
+    "Small_Dish_for_Vegetables": 12.0,
+    "Small_Noodle_Bowl": 18.0,
+    "Yogurt_Container": 8.0
+  },
+  "confidence_threshold": 0.5,
+  "iou_threshold": 0.45,
+  "max_detections": 100,
+  "preprocessing": {
+    "normalize": true,
+    "mean": [0, 0, 0],
+    "std": [255, 255, 255]
+  },
+  "postprocessing": {
+    "format": "yolo",
+    "bbox_format": "center_xywh",
+    "output_format": "xywh_conf_cls"
+  }
+}

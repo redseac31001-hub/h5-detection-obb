@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>模型测试工具</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.15.0/dist/tf.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        
+        .success { background: #d4edda; border-color: #c3e6cb; color: #155724; }
+        .error { background: #f8d7da; border-color: #f5c6cb; color: #721c24; }
+        .info { background: #d1ecf1; border-color: #bee5eb; color: #0c5460; }
+        
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        
+        button:hover { background: #0056b3; }
+        button:disabled { background: #6c757d; cursor: not-allowed; }
+        
+        .log {
+            background: #2d3748;
+            color: #e2e8f0;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 YOLO模型测试工具</h1>
+        <p>此工具用于测试TensorFlow.js格式的YOLO模型是否能正常加载和推理。</p>
+        
+        <div class="test-section info">
+            <h3>📋 测试步骤</h3>
+            <ol>
+                <li>启动本地Web服务器 (确保模型文件可访问)</li>
+                <li>点击"测试人脸检测模型"按钮</li>
+                <li>点击"测试餐盘检测模型"按钮</li>
+                <li>查看测试结果和日志输出</li>
+            </ol>
+        </div>
+        
+        <div class="test-section">
+            <h3>🎯 模型测试</h3>
+            <button onclick="testFaceModel()">测试人脸检测模型</button>
+            <button onclick="testPlateModel()">测试餐盘检测模型</button>
+            <button onclick="testBothModels()">测试所有模型</button>
+            <button onclick="clearLog()">清空日志</button>
+        </div>
+        
+        <div class="test-section">
+            <h3>📊 系统信息</h3>
+            <div id="systemInfo">加载中...</div>
+        </div>
+        
+        <div class="test-section">
+            <h3>📝 测试日志</h3>
+            <div id="testLog" class="log">等待测试开始...</div>
+        </div>
+    </div>
+
+    <script>
+        let logElement;
+        
+        function log(message, type = 'info') {
+            if (!logElement) {
+                logElement = document.getElementById('testLog');
+            }
+            
+            const timestamp = new Date().toLocaleTimeString();
+            const prefix = type === 'error' ? '❌' : type === 'success' ? '✅' : 'ℹ️';
+            const logMessage = `[${timestamp}] ${prefix} ${message}\\n`;
+            
+            logElement.textContent += logMessage;
+            logElement.scrollTop = logElement.scrollHeight;
+            
+            console.log(message);
+        }
+        
+        function clearLog() {
+            document.getElementById('testLog').textContent = '';
+        }
+        
+        async function loadSystemInfo() {
+            try {
+                await tf.ready();
+                
+                const systemInfo = `
+🖥️ 浏览器: ${navigator.userAgent.split(' ').slice(-2).join(' ')}
+🧠 TensorFlow.js版本: ${tf.version.tfjs}
+⚡ 后端: ${tf.getBackend()}
+💾 可用后端: ${tf.engine().backendNames.join(', ')}
+🔧 WebGL支持: ${tf.getBackend() === 'webgl' ? '是' : '否'}
+                `.trim();
+                
+                document.getElementById('systemInfo').innerHTML = '<pre>' + systemInfo + '</pre>';
+                log('系统信息加载完成');
+            } catch (error) {
+                document.getElementById('systemInfo').innerHTML = '<span style="color: red;">系统信息加载失败: ' + error.message + '</span>';
+                log('系统信息加载失败: ' + error.message, 'error');
+            }
+        }
+        
+        async function testModel(modelName, modelPath) {
+            log(`开始测试 ${modelName} 模型...`);
+            
+            try {
+                // 1. 加载模型
+                log(`正在加载模型: ${modelPath}`);
+                const startTime = performance.now();
+                const model = await tf.loadGraphModel(modelPath);
+                const loadTime = performance.now() - startTime;
+                
+                log(`模型加载成功 (${loadTime.toFixed(2)}ms)`, 'success');
+                
+                // 2. 检查模型结构
+                const inputShape = model.inputs[0].shape;
+                const outputShape = model.outputs[0].shape;
+                
+                log(`输入形状: [${inputShape.join(', ')}]`);
+                log(`输出形状: [${outputShape.join(', ')}]`);
+                
+                // 3. 创建测试输入
+                log('创建测试输入张量...');
+                const testInput = tf.randomNormal([1, 640, 640, 3]);
+                
+                // 4. 执行推理测试
+                log('执行推理测试...');
+                const inferenceStart = performance.now();
+                const prediction = model.predict(testInput);
+                const result = await prediction.data();
+                const inferenceTime = performance.now() - inferenceStart;
+                
+                log(`推理成功 (${inferenceTime.toFixed(2)}ms)`, 'success');
+                log(`输出数据长度: ${result.length}`);
+                log(`输出数据范围: [${Math.min(...result).toFixed(4)}, ${Math.max(...result).toFixed(4)}]`);
+                
+                // 5. 清理资源
+                testInput.dispose();
+                prediction.dispose();
+                model.dispose();
+                
+                log(`${modelName} 模型测试完成 ✅`, 'success');
+                log(`总用时: ${(performance.now() - startTime).toFixed(2)}ms`);
+                
+                return true;
+                
+            } catch (error) {
+                log(`${modelName} 模型测试失败: ${error.message}`, 'error');
+                log(`错误详情: ${error.stack}`, 'error');
+                return false;
+            }
+        }
+        
+        async function testFaceModel() {
+            const success = await testModel('人脸检测', '/models/face_detection_model/model.json');
+            
+            if (success) {
+                showNotification('人脸检测模型测试通过！', 'success');
+            } else {
+                showNotification('人脸检测模型测试失败', 'error');
+            }
+        }
+        
+        async function testPlateModel() {
+            const success = await testModel('餐盘检测', '/models/plate_detection_model/model.json');
+            
+            if (success) {
+                showNotification('餐盘检测模型测试通过！', 'success');
+            } else {
+                showNotification('餐盘检测模型测试失败', 'error');
+            }
+        }
+        
+        async function testBothModels() {
+            log('开始批量测试所有模型...', 'info');
+            
+            const faceResult = await testModel('人脸检测', '/models/face_detection_model/model.json');
+            const plateResult = await testModel('餐盘检测', '/models/plate_detection_model/model.json');
+            
+            const successCount = [faceResult, plateResult].filter(Boolean).length;
+            
+            log(`\\n📊 测试总结:`, 'info');
+            log(`✅ 成功: ${successCount}/2 个模型`);
+            log(`❌ 失败: ${2 - successCount}/2 个模型`);
+            
+            if (successCount === 2) {
+                showNotification('所有模型测试通过！🎉', 'success');
+            } else {
+                showNotification(`${successCount}/2 个模型测试通过`, 'error');
+            }
+        }
+        
+        function showNotification(message, type) {
+            const notification = document.createElement('div');
+            notification.className = `test-section ${type}`;
+            notification.innerHTML = `<h4>${message}</h4>`;
+            
+            document.body.appendChild(notification);
+            
+            setTimeout(() => {
+                notification.remove();
+            }, 3000);
+        }
+        
+        // 页面加载完成后初始化
+        window.addEventListener('load', () => {
+            loadSystemInfo();
+            log('模型测试工具已就绪');
+            log('请确保已启动本地Web服务器，模型文件可正常访问');
+        });
+        
+        // 监听TensorFlow.js错误
+        window.addEventListener('error', (event) => {
+            log('JavaScript错误: ' + event.error.message, 'error');
+        });
+    </script>
+</body>
+</html>

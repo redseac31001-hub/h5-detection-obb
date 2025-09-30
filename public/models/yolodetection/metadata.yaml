@@ -1,0 +1,26 @@
+description: Ultralytics YOLO11n model trained on /content/datasets/detection/detection.yaml
+author: Ultralytics
+date: '2025-08-04T07:55:38.100111'
+version: 8.3.173
+license: AGPL-3.0 License (https://ultralytics.com/license)
+docs: https://docs.ultralytics.com
+stride: 32
+task: detect
+batch: 1
+imgsz:
+- 640
+- 640
+names:
+  0: '  Fruit_Bowl'
+  1: Large_Dish_for_Vegetables
+  2: Large_Noodle_Bowl
+  3: Oval_Plate_for_Staple_Food
+  4: Small_Dish_for_Vegetables
+  5: Small_Noodle_Bowl
+  6: Yogurt_Container
+args:
+  batch: 1
+  half: false
+  int8: false
+  nms: false
+channels: 3

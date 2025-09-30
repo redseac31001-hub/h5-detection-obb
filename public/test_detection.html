@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YOLO 模型图片检测测试</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.15.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl@4.15.0/dist/tf-backend-webgl.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .loading { background: #e3f2fd; color: #1976d2; }
+        .success { background: #e8f5e8; color: #2e7d32; }
+        .error { background: #ffebee; color: #c62828; }
+        .image-container {
+            position: relative;
+            display: inline-block;
+            margin: 20px 0;
+        }
+        .test-image {
+            max-width: 100%;
+            border: 2px solid #ddd;
+            border-radius: 4px;
+        }
+        .detection-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+            border: 2px solid #4caf50;
+            border-radius: 4px;
+        }
+        .results {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 4px;
+        }
+        .detection-item {
+            background: white;
+            padding: 10px;
+            margin: 5px 0;
+            border-radius: 4px;
+            border-left: 4px solid #4caf50;
+        }
+        .controls {
+            margin: 20px 0;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            border: none;
+            border-radius: 4px;
+            background: #2196f3;
+            color: white;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background: #1976d2;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🍽️ YOLO 餐具检测模型测试</h1>
+        
+        <div id="status" class="status loading">正在初始化...</div>
+        
+        <div class="controls">
+            <button id="startBtn" onclick="startDetection()" disabled>开始检测</button>
+            <button onclick="clearResults()">清除结果</button>
+        </div>
+        
+        <div class="image-container">
+            <img id="testImage" class="test-image" src="/test/111532922-src.jpg" 
+                 onload="onImageLoaded()" onerror="onImageError()">
+            <canvas id="detectionCanvas" class="detection-canvas"></canvas>
+        </div>
+        
+        <div id="results" class="results" style="display: none;">
+            <h3>检测结果：</h3>
+            <div id="detectionsList"></div>
+            <div id="statistics"></div>
+        </div>
+    </div>
+
+    <script>
+        let model = null;
+        let isModelLoaded = false;
+        let testImageLoaded = false;
+        
+        const classNames = [
+            'Fruit_Bowl',
+            'Large_Dish_for_Vegetables', 
+            'Large_Noodle_Bowl',
+            'Oval_Plate_for_Staple_Food',
+            'Small_Dish_for_Vegetables',
+            'Small_Noodle_Bowl',
+            'Yogurt_Container'
+        ];
+        
+        const priceMapping = {
+            'Fruit_Bowl': 15.0,
+            'Large_Dish_for_Vegetables': 18.0,
+            'Large_Noodle_Bowl': 22.0,
+            'Oval_Plate_for_Staple_Food': 25.0,
+            'Small_Dish_for_Vegetables': 12.0,
+            'Small_Noodle_Bowl': 18.0,
+            'Yogurt_Container': 8.0
+        };
+
+        async function initializeModel() {
+            const statusDiv = document.getElementById('status');
+            
+            try {
+                statusDiv.innerHTML = '🔄 正在初始化 TensorFlow.js...';
+                await tf.ready();
+                console.log('TensorFlow.js 后端:', tf.getBackend());
+                
+                statusDiv.innerHTML = '📥 正在加载 YOLO 模型...';
+                model = await tf.loadGraphModel('/models/yolodetection/model.json');
+                
+                console.log('✅ 模型加载成功');
+                console.log('输入形状:', model.inputs.map(input => input.shape));
+                console.log('输出形状:', model.outputs.map(output => output.shape));
+                
+                // 预热模型
+                statusDiv.innerHTML = '🔥 正在预热模型...';
+                const warmupInput = tf.randomNormal([1, 640, 640, 3]);
+                const warmupOutput = model.predict(warmupInput);
+                warmupInput.dispose();
+                warmupOutput.dispose();
+                
+                isModelLoaded = true;
+                statusDiv.innerHTML = '✅ 模型加载完成，准备检测！';
+                statusDiv.className = 'status success';
+                
+                updateStartButton();
+                
+            } catch (error) {
+                console.error('❌ 模型加载失败:', error);
+                statusDiv.innerHTML = '❌ 模型加载失败: ' + error.message;
+                statusDiv.className = 'status error';
+            }
+        }
+        
+        function onImageLoaded() {
+            console.log('✅ 测试图片加载成功');
+            testImageLoaded = true;
+            updateStartButton();
+        }
+        
+        function onImageError() {
+            console.error('❌ 测试图片加载失败');
+            document.getElementById('status').innerHTML = '❌ 测试图片加载失败';
+            document.getElementById('status').className = 'status error';
+        }
+        
+        function updateStartButton() {
+            const startBtn = document.getElementById('startBtn');
+            startBtn.disabled = !(isModelLoaded && testImageLoaded);
+        }
+
+        async function startDetection() {
+            if (!model || !isModelLoaded) {
+                alert('模型尚未加载完成');
+                return;
+            }
+            
+            const statusDiv = document.getElementById('status');
+            const startBtn = document.getElementById('startBtn');
+            
+            try {
+                startBtn.disabled = true;
+                statusDiv.innerHTML = '🔍 正在进行检测...';
+                statusDiv.className = 'status loading';
+                
+                const detections = await detectObjects();
+                displayResults(detections);
+                
+                statusDiv.innerHTML = `✅ 检测完成！发现 ${detections.length} 个物体`;
+                statusDiv.className = 'status success';
+                
+            } catch (error) {
+                console.error('检测失败:', error);
+                statusDiv.innerHTML = '❌ 检测失败: ' + error.message;
+                statusDiv.className = 'status error';
+            } finally {
+                startBtn.disabled = false;
+            }
+        }
+
+        async function detectObjects() {
+            const img = document.getElementById('testImage');
+            const canvas = document.getElementById('detectionCanvas');
+            const ctx = canvas.getContext('2d');
+            
+            // 设置画布尺寸
+            canvas.width = img.width;
+            canvas.height = img.height;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // 预处理图片
+            const tensor = preprocessImage(img);
+            
+            // 模型推理
+            const predictions = model.predict(tensor);
+            console.log('原始预测结果:', predictions);
+            
+            // 处理预测结果 - 可能是数组或单个tensor
+            let outputTensor;
+            if (Array.isArray(predictions)) {
+                outputTensor = predictions[0]; // 取第一个输出
+                console.log('使用数组中的第一个输出:', outputTensor);
+            } else {
+                outputTensor = predictions;
+                console.log('使用单一输出:', outputTensor);
+            }
+            
+            // 后处理结果
+            const detections = await postprocessPredictions(outputTensor, img.width, img.height);
+            
+            // 绘制检测框
+            drawDetections(ctx, detections);
+            
+            // 清理内存
+            tensor.dispose();
+            if (Array.isArray(predictions)) {
+                predictions.forEach(p => p.dispose());
+            } else {
+                predictions.dispose();
+            }
+            
+            return detections;
+        }
+        
+        function preprocessImage(img) {
+            // 将图片转换为tensor
+            let tensor = tf.browser.fromPixels(img);
+            
+            // 调整尺寸到640x640
+            tensor = tf.image.resizeBilinear(tensor, [640, 640]);
+            
+            // 归一化到0-1
+            tensor = tensor.div(255.0);
+            
+            // 添加batch维度
+            tensor = tensor.expandDims(0);
+            
+            return tensor;
+        }
+        
+        async function postprocessPredictions(predictions, imgWidth, imgHeight) {
+            const data = await predictions.data();
+            const shape = predictions.shape;
+            console.log('预测输出形状:', shape);
+            console.log('输出数据示例:', Array.from(data.slice(0, 20)));
+            
+            const detections = [];
+            
+            // 根据metadata.yaml，这是YOLO11n模型，输出格式为 [1, features, 8400]
+            // features = 4(bbox) + 7(classes) = 11，没有objectness分数
+            if (shape.length === 3 && shape[0] === 1) {
+                const numClasses = 7; // 我们有7个餐具类别
+                const numFeatures = shape[1]; // 11 = 4(bbox) + 7(classes)
+                const numDetections = shape[2]; // 通常是8400
+                
+                console.log(`YOLO11n格式: [${shape[0]}, ${numFeatures}, ${numDetections}]`);
+                console.log(`处理 ${numDetections} 个检测，每个有 ${numFeatures} 个特征`);
+                
+                // YOLO v11 输出格式: [batch, features, detections]
+                // features 排列: [x_center, y_center, width, height, class0, class1, ..., class6]
+                
+                for (let i = 0; i < numDetections; i++) {
+                    // 获取边界框坐标 (前4个特征)
+                    const xCenter = data[i]; // 第i个检测的x中心 (归一化坐标 0-1)
+                    const yCenter = data[numDetections + i]; // y中心
+                    const width = data[2 * numDetections + i]; // 宽度 
+                    const height = data[3 * numDetections + i]; // 高度
+                    
+                    // 查找最高置信度的类别 (特征4-10)
+                    let maxClassScore = 0;
+                    let maxClassIndex = 0;
+                    
+                    for (let classIdx = 0; classIdx < numClasses; classIdx++) {
+                        const featureIdx = 4 + classIdx; // 类别分数从第4个特征开始
+                        const classScore = data[featureIdx * numDetections + i];
+                        if (classScore > maxClassScore) {
+                            maxClassScore = classScore;
+                            maxClassIndex = classIdx;
+                        }
+                    }
+                    
+                    // 设置更高的置信度阈值，因为没有objectness分数
+                    if (maxClassScore > 0.6) {  
+                        // 将归一化坐标(0-1)转换为像素坐标
+                        const centerX = xCenter * imgWidth;
+                        const centerY = yCenter * imgHeight;
+                        const boxWidth = width * imgWidth;
+                        const boxHeight = height * imgHeight;
+                        
+                        // 转换为左上角坐标
+                        const x = Math.max(0, centerX - boxWidth / 2);
+                        const y = Math.max(0, centerY - boxHeight / 2);
+                        const w = Math.min(imgWidth - x, boxWidth);
+                        const h = Math.min(imgHeight - y, boxHeight);
+                        
+                        // 过滤掉太小或无效的框
+                        if (w > 10 && h > 10 && x + w <= imgWidth && y + h <= imgHeight) {
+                            detections.push({
+                                class: classNames[maxClassIndex] || `class_${maxClassIndex}`,
+                                confidence: maxClassScore,
+                                bbox: { x, y, width: w, height: h }
+                            });
+                            
+                            console.log(`有效检测: ${classNames[maxClassIndex]}, 置信度: ${maxClassScore.toFixed(3)}, 位置: (${Math.round(x)}, ${Math.round(y)}, ${Math.round(w)}, ${Math.round(h)})`);
+                        }
+                    }
+                }
+            } else {
+                console.warn('未知的输出形状:', shape);
+                // 尝试老格式解析
+                const numDetections = shape[1] || shape[0];
+                const numFeatures = shape[2] || shape[1];
+                
+                for (let i = 0; i < Math.min(numDetections, 1000); i++) {
+                    const baseIndex = i * numFeatures;
+                    const confidence = data[baseIndex + 4] || data[baseIndex + 0];
+                    
+                    if (confidence > 0.6) {
+                        const xCenter = data[baseIndex + 0];
+                        const yCenter = data[baseIndex + 1];
+                        const width = data[baseIndex + 2];
+                        const height = data[baseIndex + 3];
+                        
+                        detections.push({
+                            class: 'detected_object',
+                            confidence: confidence,
+                            bbox: { 
+                                x: (xCenter - width / 2) * imgWidth,
+                                y: (yCenter - height / 2) * imgHeight,
+                                width: width * imgWidth,
+                                height: height * imgHeight
+                            }
+                        });
+                    }
+                }
+            }
+            
+            console.log(`找到 ${detections.length} 个有效检测`);
+            
+            // 应用NMS (非极大值抑制) 去除重复检测
+            const nmsDetections = applyNMS(detections, 0.45); // IoU阈值0.45
+            console.log(`NMS后剩余 ${nmsDetections.length} 个检测`);
+            
+            return nmsDetections;
+        }
+        
+        function drawDetections(ctx, detections) {
+            detections.forEach((detection, index) => {
+                const { bbox, class: className, confidence } = detection;
+                
+                // 绘制边界框
+                ctx.strokeStyle = '#4caf50';
+                ctx.lineWidth = 3;
+                ctx.strokeRect(bbox.x, bbox.y, bbox.width, bbox.height);
+                
+                // 绘制标签背景
+                const label = `${className} (${(confidence * 100).toFixed(1)}%)`;
+                ctx.font = '16px Arial';
+                const textWidth = ctx.measureText(label).width;
+                
+                ctx.fillStyle = '#4caf50';
+                ctx.fillRect(bbox.x, bbox.y - 25, textWidth + 10, 25);
+                
+                // 绘制标签文字
+                ctx.fillStyle = 'white';
+                ctx.fillText(label, bbox.x + 5, bbox.y - 5);
+            });
+        }
+        
+        function displayResults(detections) {
+            const resultsDiv = document.getElementById('results');
+            const listDiv = document.getElementById('detectionsList');
+            const statsDiv = document.getElementById('statistics');
+            
+            resultsDiv.style.display = 'block';
+            
+            // 显示检测列表
+            listDiv.innerHTML = '';
+            let totalPrice = 0;
+            
+            detections.forEach((detection, index) => {
+                const price = priceMapping[detection.class] || 0;
+                totalPrice += price;
+                
+                const item = document.createElement('div');
+                item.className = 'detection-item';
+                item.innerHTML = `
+                    <strong>${detection.class}</strong> - 
+                    置信度: ${(detection.confidence * 100).toFixed(1)}% - 
+                    价格: ¥${price.toFixed(2)} - 
+                    位置: (${Math.round(detection.bbox.x)}, ${Math.round(detection.bbox.y)}) 
+                    尺寸: ${Math.round(detection.bbox.width)}×${Math.round(detection.bbox.height)}
+                `;
+                listDiv.appendChild(item);
+            });
+            
+            // 显示统计信息
+            const categoryCount = {};
+            detections.forEach(d => {
+                categoryCount[d.class] = (categoryCount[d.class] || 0) + 1;
+            });
+            
+            statsDiv.innerHTML = `
+                <h4>统计信息：</h4>
+                <p><strong>总检测数量：</strong> ${detections.length}</p>
+                <p><strong>总价格：</strong> ¥${totalPrice.toFixed(2)}</p>
+                <p><strong>类别分布：</strong> ${Object.entries(categoryCount).map(([k, v]) => `${k}: ${v}`).join(', ')}</p>
+            `;
+        }
+        
+        // 非极大值抑制函数
+        function applyNMS(detections, iouThreshold = 0.45) {
+            if (detections.length === 0) return detections;
+            
+            // 按置信度排序
+            const sortedDetections = detections.sort((a, b) => b.confidence - a.confidence);
+            const selectedDetections = [];
+            
+            for (let i = 0; i < sortedDetections.length; i++) {
+                const currentDetection = sortedDetections[i];
+                let shouldKeep = true;
+                
+                // 检查与已选择的检测是否重叠过多
+                for (let j = 0; j < selectedDetections.length; j++) {
+                    const selectedDetection = selectedDetections[j];
+                    
+                    // 只对同类别的检测进行NMS
+                    if (currentDetection.class === selectedDetection.class) {
+                        const iou = calculateIoU(currentDetection.bbox, selectedDetection.bbox);
+                        if (iou > iouThreshold) {
+                            shouldKeep = false;
+                            break;
+                        }
+                    }
+                }
+                
+                if (shouldKeep) {
+                    selectedDetections.push(currentDetection);
+                }
+            }
+            
+            return selectedDetections;
+        }
+        
+        // 计算两个边界框的IoU
+        function calculateIoU(box1, box2) {
+            const x1 = Math.max(box1.x, box2.x);
+            const y1 = Math.max(box1.y, box2.y);
+            const x2 = Math.min(box1.x + box1.width, box2.x + box2.width);
+            const y2 = Math.min(box1.y + box1.height, box2.y + box2.height);
+            
+            if (x2 <= x1 || y2 <= y1) {
+                return 0;
+            }
+            
+            const intersection = (x2 - x1) * (y2 - y1);
+            const area1 = box1.width * box1.height;
+            const area2 = box2.width * box2.height;
+            const union = area1 + area2 - intersection;
+            
+            return intersection / union;
+        }
+        
+        function clearResults() {
+            document.getElementById('results').style.display = 'none';
+            const canvas = document.getElementById('detectionCanvas');
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+        
+        // 页面加载后初始化
+        window.addEventListener('load', initializeModel);
+    </script>
+</body>
+</html>

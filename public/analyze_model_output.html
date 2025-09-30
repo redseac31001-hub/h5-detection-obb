@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>YOLO模型输出分析</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.15.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl@4.15.0/dist/tf-backend-webgl.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; max-width: 1200px; margin: 0 auto; }
+        .container { background: white; padding: 20px; border-radius: 8px; margin: 10px 0; }
+        .status { padding: 10px; margin: 10px 0; border-radius: 4px; font-weight: bold; }
+        .loading { background: #e3f2fd; color: #1976d2; }
+        .success { background: #e8f5e8; color: #2e7d32; }
+        .error { background: #ffebee; color: #c62828; }
+        pre { background: #f5f5f5; padding: 15px; border-radius: 4px; overflow-x: auto; }
+        .data-sample { max-height: 300px; overflow-y: auto; }
+    </style>
+</head>
+<body>
+    <h1>YOLO模型输出深度分析</h1>
+    <div id="status" class="status loading">正在初始化...</div>
+    <div id="results"></div>
+
+    <script>
+        async function analyzeModel() {
+            const statusDiv = document.getElementById('status');
+            const resultsDiv = document.getElementById('results');
+            
+            try {
+                statusDiv.innerHTML = '🔄 正在加载模型...';
+                await tf.ready();
+                
+                const model = await tf.loadGraphModel('/models/yolodetection/model.json');
+                
+                statusDiv.innerHTML = '🔍 正在分析模型结构...';
+                
+                // 详细分析模型
+                const modelInfo = {
+                    inputs: model.inputs.map(input => ({
+                        name: input.name,
+                        shape: input.shape,
+                        dtype: input.dtype
+                    })),
+                    outputs: model.outputs.map(output => ({
+                        name: output.name,
+                        shape: output.shape,
+                        dtype: output.dtype
+                    })),
+                    inputNodes: model.inputNodes.map(node => node.name || 'unnamed'),
+                    outputNodes: model.outputNodes.map(node => node.name || 'unnamed')
+                };
+                
+                resultsDiv.innerHTML += `
+                    <div class="container">
+                        <h3>📋 模型结构信息</h3>
+                        <pre>${JSON.stringify(modelInfo, null, 2)}</pre>
+                    </div>
+                `;
+                
+                // 进行推理并分析输出
+                statusDiv.innerHTML = '🧪 正在进行推理分析...';
+                
+                const testInput = tf.randomNormal([1, 640, 640, 3]);
+                const predictions = model.predict(testInput);
+                
+                let outputAnalysis = {};
+                
+                if (Array.isArray(predictions)) {
+                    outputAnalysis.type = 'Array';
+                    outputAnalysis.length = predictions.length;
+                    outputAnalysis.outputs = [];
+                    
+                    for (let i = 0; i < predictions.length; i++) {
+                        const output = predictions[i];
+                        const data = await output.data();
+                        
+                        outputAnalysis.outputs.push({
+                            index: i,
+                            shape: output.shape,
+                            dtype: output.dtype,
+                            dataLength: data.length,
+                            sampleData: Array.from(data.slice(0, 50)),
+                            statistics: {
+                                min: Math.min(...data),
+                                max: Math.max(...data),
+                                mean: Array.from(data).reduce((a, b) => a + b, 0) / data.length,
+                                nonZeroCount: Array.from(data).filter(x => Math.abs(x) > 1e-6).length
+                            }
+                        });
+                    }
+                } else {
+                    const data = await predictions.data();
+                    outputAnalysis = {
+                        type: 'Tensor',
+                        shape: predictions.shape,
+                        dtype: predictions.dtype,
+                        dataLength: data.length,
+                        sampleData: Array.from(data.slice(0, 50)),
+                        statistics: {
+                            min: Math.min(...data),
+                            max: Math.max(...data),
+                            mean: Array.from(data).reduce((a, b) => a + b, 0) / data.length,
+                            nonZeroCount: Array.from(data).filter(x => Math.abs(x) > 1e-6).length
+                        }
+                    };
+                }
+                
+                resultsDiv.innerHTML += `
+                    <div class="container">
+                        <h3>📊 输出分析</h3>
+                        <div class="data-sample">
+                            <pre>${JSON.stringify(outputAnalysis, null, 2)}</pre>
+                        </div>
+                    </div>
+                `;
+                
+                // 分析YOLO输出格式
+                statusDiv.innerHTML = '🔍 正在分析YOLO输出格式...';
+                
+                let yoloAnalysis = analyzeYOLOFormat(outputAnalysis);
+                
+                resultsDiv.innerHTML += `
+                    <div class="container">
+                        <h3>🎯 YOLO格式分析</h3>
+                        <pre>${JSON.stringify(yoloAnalysis, null, 2)}</pre>
+                    </div>
+                `;
+                
+                // 清理
+                testInput.dispose();
+                if (Array.isArray(predictions)) {
+                    predictions.forEach(p => p.dispose());
+                } else {
+                    predictions.dispose();
+                }
+                
+                statusDiv.innerHTML = '✅ 分析完成';
+                statusDiv.className = 'status success';
+                
+            } catch (error) {
+                console.error('分析失败:', error);
+                statusDiv.innerHTML = `❌ 分析失败: ${error.message}`;
+                statusDiv.className = 'status error';
+            }
+        }
+        
+        function analyzeYOLOFormat(outputAnalysis) {
+            let analysis = {
+                detectedFormat: 'unknown',
+                recommendations: []
+            };
+            
+            if (outputAnalysis.type === 'Array') {
+                analysis.detectedFormat = 'Multi-output model';
+                analysis.recommendations.push('使用第一个输出进行检测');
+                
+                const firstOutput = outputAnalysis.outputs[0];
+                if (firstOutput && firstOutput.shape.length === 3) {
+                    const [batch, features, detections] = firstOutput.shape;
+                    analysis.possibleFormat = `YOLO v8/v11 format: [${batch}, ${features}, ${detections}]`;
+                    analysis.recommendations.push(`可能有 ${detections} 个候选检测框`);
+                    analysis.recommendations.push(`每个检测有 ${features} 个特征 (4个bbox + ${features-4}个类别)`);
+                }
+            } else {
+                const shape = outputAnalysis.shape;
+                if (shape.length === 3) {
+                    const [batch, features, detections] = shape;
+                    analysis.detectedFormat = 'YOLO v8/v11 format';
+                    analysis.possibleFormat = `[${batch}, ${features}, ${detections}]`;
+                    analysis.recommendations.push(`有 ${detections} 个候选检测框`);
+                    analysis.recommendations.push(`每个检测有 ${features} 个特征`);
+                    
+                    if (features === 12) {
+                        analysis.recommendations.push('可能是 4(bbox) + 1(objectness) + 7(classes) 格式');
+                    } else if (features === 11) {
+                        analysis.recommendations.push('可能是 4(bbox) + 7(classes) 格式');
+                    }
+                } else if (shape.length === 2) {
+                    analysis.detectedFormat = 'Flattened format';
+                    analysis.recommendations.push('需要reshape为正确的YOLO格式');
+                }
+            }
+            
+            return analysis;
+        }
+        
+        window.addEventListener('load', analyzeModel);
+    </script>
+</body>
+</html>

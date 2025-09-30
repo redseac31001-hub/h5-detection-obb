@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>改进的YOLO检测测试</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.15.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl@4.15.0/dist/tf-backend-webgl.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 1400px; margin: 0 auto; padding: 20px; background: #f5f5f5; }
+        .container { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        .status { padding: 10px; margin: 10px 0; border-radius: 4px; font-weight: bold; }
+        .loading { background: #e3f2fd; color: #1976d2; }
+        .success { background: #e8f5e8; color: #2e7d32; }
+        .error { background: #ffebee; color: #c62828; }
+        .controls { display: flex; gap: 15px; align-items: center; flex-wrap: wrap; margin: 20px 0; }
+        .control-group { display: flex; flex-direction: column; gap: 5px; }
+        .control-group label { font-weight: bold; font-size: 14px; }
+        .control-group input { padding: 5px; border: 1px solid #ddd; border-radius: 4px; }
+        .image-container { position: relative; display: inline-block; margin: 20px 0; }
+        .test-image { max-width: 100%; border: 2px solid #ddd; border-radius: 4px; }
+        .detection-canvas { position: absolute; top: 0; left: 0; pointer-events: none; border: 2px solid #4caf50; border-radius: 4px; }
+        .results { margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 4px; }
+        .detection-item { background: white; padding: 10px; margin: 5px 0; border-radius: 4px; border-left: 4px solid #4caf50; }
+        button { padding: 10px 20px; margin: 5px; border: none; border-radius: 4px; background: #2196f3; color: white; cursor: pointer; font-size: 16px; }
+        button:hover { background: #1976d2; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 20px 0; }
+        .stat-card { background: white; padding: 15px; border-radius: 8px; text-align: center; }
+        .stat-value { font-size: 24px; font-weight: bold; color: #2196f3; }
+        .stat-label { font-size: 14px; color: #666; margin-top: 5px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🍽️ 改进的YOLO餐具检测测试</h1>
+        
+        <div id="status" class="status loading">正在初始化...</div>
+        
+        <div class="controls">
+            <div class="control-group">
+                <label>置信度阈值:</label>
+                <input type="range" id="confidenceThreshold" min="0.01" max="0.9" step="0.01" value="0.3">
+                <span id="confidenceValue">0.3</span>
+            </div>
+            
+            <div class="control-group">
+                <label>NMS IoU阈值:</label>
+                <input type="range" id="iouThreshold" min="0.1" max="0.8" step="0.05" value="0.45">
+                <span id="iouValue">0.45</span>
+            </div>
+            
+            <div class="control-group">
+                <label>最大检测数:</label>
+                <input type="number" id="maxDetections" min="1" max="50" value="20">
+            </div>
+            
+            <button id="startBtn" onclick="startDetection()" disabled>开始检测</button>
+            <button onclick="clearResults()">清除结果</button>
+        </div>
+        
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-value" id="totalDetections">0</div>
+                <div class="stat-label">总检测数</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="afterNMS">0</div>
+                <div class="stat-label">NMS后数量</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="totalPrice">¥0.00</div>
+                <div class="stat-label">总价格</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="avgConfidence">0%</div>
+                <div class="stat-label">平均置信度</div>
+            </div>
+        </div>
+        
+        <div class="image-container">
+            <img id="testImage" class="test-image" src="/test/111532922-src.jpg" 
+                 onload="onImageLoaded()" onerror="onImageError()">
+            <canvas id="detectionCanvas" class="detection-canvas"></canvas>
+        </div>
+        
+        <div id="results" class="results" style="display: none;">
+            <h3>检测结果：</h3>
+            <div id="detectionsList"></div>
+        </div>
+    </div>
+
+    <script>
+        let model = null;
+        let isModelLoaded = false;
+        let testImageLoaded = false;
+        
+        const classNames = [
+            'Fruit_Bowl',
+            'Large_Dish_for_Vegetables', 
+            'Large_Noodle_Bowl',
+            'Oval_Plate_for_Staple_Food',
+            'Small_Dish_for_Vegetables',
+            'Small_Noodle_Bowl',
+            'Yogurt_Container'
+        ];
+        
+        const priceMapping = {
+            'Fruit_Bowl': 15.0,
+            'Large_Dish_for_Vegetables': 18.0,
+            'Large_Noodle_Bowl': 22.0,
+            'Oval_Plate_for_Staple_Food': 25.0,
+            'Small_Dish_for_Vegetables': 12.0,
+            'Small_Noodle_Bowl': 18.0,
+            'Yogurt_Container': 8.0
+        };
+
+        // 参数控制
+        document.getElementById('confidenceThreshold').addEventListener('input', function() {
+            document.getElementById('confidenceValue').textContent = this.value;
+        });
+        
+        document.getElementById('iouThreshold').addEventListener('input', function() {
+            document.getElementById('iouValue').textContent = this.value;
+        });
+
+        async function initializeModel() {
+            const statusDiv = document.getElementById('status');
+            
+            try {
+                statusDiv.innerHTML = '🔄 正在初始化 TensorFlow.js...';
+                await tf.ready();
+                console.log('TensorFlow.js 后端:', tf.getBackend());
+                
+                statusDiv.innerHTML = '📥 正在加载 YOLO 模型...';
+                model = await tf.loadGraphModel('/models/yolodetection/model.json');
+                
+                console.log('✅ 模型加载成功');
+                console.log('输入形状:', model.inputs.map(input => input.shape));
+                console.log('输出形状:', model.outputs.map(output => output.shape));
+                
+                // 预热模型
+                statusDiv.innerHTML = '🔥 正在预热模型...';
+                const warmupInput = tf.randomNormal([1, 640, 640, 3]);
+                const warmupOutput = model.predict(warmupInput);
+                warmupInput.dispose();
+                if (Array.isArray(warmupOutput)) {
+                    warmupOutput.forEach(p => p.dispose());
+                } else {
+                    warmupOutput.dispose();
+                }
+                
+                isModelLoaded = true;
+                statusDiv.innerHTML = '✅ 模型加载完成，准备检测！';
+                statusDiv.className = 'status success';
+                
+                updateStartButton();
+                
+            } catch (error) {
+                console.error('❌ 模型加载失败:', error);
+                statusDiv.innerHTML = '❌ 模型加载失败: ' + error.message;
+                statusDiv.className = 'status error';
+            }
+        }
+        
+        function onImageLoaded() {
+            console.log('✅ 测试图片加载成功');
+            testImageLoaded = true;
+            updateStartButton();
+        }
+        
+        function onImageError() {
+            console.error('❌ 测试图片加载失败');
+            document.getElementById('status').innerHTML = '❌ 测试图片加载失败';
+            document.getElementById('status').className = 'status error';
+        }
+        
+        function updateStartButton() {
+            const startBtn = document.getElementById('startBtn');
+            startBtn.disabled = !(isModelLoaded && testImageLoaded);
+        }
+
+        async function startDetection() {
+            if (!model || !isModelLoaded) {
+                alert('模型尚未加载完成');
+                return;
+            }
+            
+            const statusDiv = document.getElementById('status');
+            const startBtn = document.getElementById('startBtn');
+            
+            try {
+                startBtn.disabled = true;
+                statusDiv.innerHTML = '🔍 正在进行检测...';
+                statusDiv.className = 'status loading';
+                
+                const detections = await detectObjects();
+                displayResults(detections);
+                
+                statusDiv.innerHTML = `✅ 检测完成！最终检测到 ${detections.length} 个对象`;
+                statusDiv.className = 'status success';
+                
+            } catch (error) {
+                console.error('检测失败:', error);
+                statusDiv.innerHTML = '❌ 检测失败: ' + error.message;
+                statusDiv.className = 'status error';
+            } finally {
+                startBtn.disabled = false;
+            }
+        }
+
+        async function detectObjects() {
+            const img = document.getElementById('testImage');
+            const canvas = document.getElementById('detectionCanvas');
+            const ctx = canvas.getContext('2d');
+            
+            // 设置画布尺寸
+            canvas.width = img.width;
+            canvas.height = img.height;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // 预处理图片
+            const tensor = preprocessImage(img);
+            
+            // 模型推理
+            const predictions = model.predict(tensor);
+            console.log('原始预测结果:', predictions);
+            
+            // 处理预测结果
+            let outputTensor;
+            if (Array.isArray(predictions)) {
+                outputTensor = predictions[0];
+            } else {
+                outputTensor = predictions;
+            }
+            
+            // 后处理结果
+            const rawDetections = await postprocessPredictions(outputTensor, img.width, img.height);
+            console.log(`原始检测数量: ${rawDetections.length}`);
+            
+            // 应用NMS
+            const confidenceThreshold = parseFloat(document.getElementById('confidenceThreshold').value);
+            const iouThreshold = parseFloat(document.getElementById('iouThreshold').value);
+            const maxDetections = parseInt(document.getElementById('maxDetections').value);
+            
+            const filteredDetections = rawDetections.filter(d => d.confidence >= confidenceThreshold);
+            const nmsDetections = applyNMS(filteredDetections, iouThreshold).slice(0, maxDetections);
+            
+            console.log(`置信度过滤后: ${filteredDetections.length}, NMS后: ${nmsDetections.length}`);
+            
+            // 绘制检测框
+            drawDetections(ctx, nmsDetections);
+            
+            // 更新统计信息
+            updateStats(rawDetections.length, nmsDetections.length, nmsDetections);
+            
+            // 清理内存
+            tensor.dispose();
+            if (Array.isArray(predictions)) {
+                predictions.forEach(p => p.dispose());
+            } else {
+                predictions.dispose();
+            }
+            
+            return nmsDetections;
+        }
+        
+        function preprocessImage(img) {
+            let tensor = tf.browser.fromPixels(img);
+            tensor = tf.image.resizeBilinear(tensor, [640, 640]);
+            tensor = tensor.div(255.0);
+            tensor = tensor.expandDims(0);
+            return tensor;
+        }
+        
+        async function postprocessPredictions(predictions, imgWidth, imgHeight) {
+            const data = await predictions.data();
+            const shape = predictions.shape;
+            console.log('预测输出形状:', shape);
+            console.log('数据前20个值:', Array.from(data.slice(0, 20)));
+            
+            const detections = [];
+            
+            if (shape.length === 3 && shape[0] === 1) {
+                const numClasses = 7;
+                const numFeatures = shape[1]; // 11
+                const numDetections = shape[2]; // 8400
+                
+                console.log(`YOLO11n格式: [${shape[0]}, ${numFeatures}, ${numDetections}]`);
+                console.log(`特征数: ${numFeatures}, 检测数: ${numDetections}`);
+                
+                // YOLO11n 输出格式: [1, 11, 8400]
+                // 11个特征: [x, y, w, h, class0_prob, class1_prob, ..., class6_prob]
+                // 数据是按特征展开的: [所有x坐标, 所有y坐标, 所有w, 所有h, 所有class0分数, ...]
+                
+                for (let i = 0; i < numDetections; i++) {
+                    // 边界框坐标 (前4个特征通道)
+                    const xCenter = data[0 * numDetections + i]; // 第0个特征的第i个检测
+                    const yCenter = data[1 * numDetections + i]; // 第1个特征的第i个检测  
+                    const width = data[2 * numDetections + i];   // 第2个特征的第i个检测
+                    const height = data[3 * numDetections + i];  // 第3个特征的第i个检测
+                    
+                    // 类别概率 (特征4-10)
+                    let maxClassScore = 0;
+                    let maxClassIndex = 0;
+                    
+                    for (let classIdx = 0; classIdx < numClasses; classIdx++) {
+                        const featureIdx = 4 + classIdx; // 特征索引4-10
+                        const classScore = data[featureIdx * numDetections + i];
+                        if (classScore > maxClassScore) {
+                            maxClassScore = classScore;
+                            maxClassIndex = classIdx;
+                        }
+                    }
+                    
+                    // 调试前几个检测
+                    if (i < 5) {
+                        // 输出所有类别分数用于调试
+                        const classScores = [];
+                        for (let c = 0; c < numClasses; c++) {
+                            const score = data[(4 + c) * numDetections + i];
+                            classScores.push(score.toFixed(4));
+                        }
+                        console.log(`检测${i}: x=${xCenter.toFixed(1)}, y=${yCenter.toFixed(1)}, w=${width.toFixed(1)}, h=${height.toFixed(1)}, maxScore=${maxClassScore.toFixed(4)}, class=${maxClassIndex}, 所有分数=[${classScores.join(', ')}]`);
+                    }
+                    
+                    if (maxClassScore > 0.01) {  // 极低阈值用于调试
+                        // 验证坐标有效性
+                        if (xCenter >= 0 && xCenter <= 1 && yCenter >= 0 && yCenter <= 1 && 
+                            width > 0 && width <= 1 && height > 0 && height <= 1) {
+                            
+                            const centerX = xCenter * imgWidth;
+                            const centerY = yCenter * imgHeight;
+                            const boxWidth = width * imgWidth;
+                            const boxHeight = height * imgHeight;
+                            
+                            const x = Math.max(0, centerX - boxWidth / 2);
+                            const y = Math.max(0, centerY - boxHeight / 2);
+                            const w = Math.min(imgWidth - x, boxWidth);
+                            const h = Math.min(imgHeight - y, boxHeight);
+                            
+                            if (w > 1 && h > 1) { // 更宽松的尺寸检查
+                                detections.push({
+                                    class: classNames[maxClassIndex] || `class_${maxClassIndex}`,
+                                    confidence: maxClassScore,
+                                    bbox: { x, y, width: w, height: h },
+                                    raw: { xCenter, yCenter, width: width, height: height } // 调试用
+                                });
+                                
+                                if (detections.length <= 10) {
+                                    console.log(`有效检测${detections.length}: ${classNames[maxClassIndex]}, 置信度=${maxClassScore.toFixed(3)}, 原始坐标=(${xCenter.toFixed(3)}, ${yCenter.toFixed(3)}, ${width.toFixed(3)}, ${height.toFixed(3)})`);
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                console.log(`总共找到 ${detections.length} 个候选检测`);
+            }
+            
+            return detections;
+        }
+        
+        function applyNMS(detections, iouThreshold = 0.45) {
+            if (detections.length === 0) return detections;
+            
+            const sortedDetections = detections.sort((a, b) => b.confidence - a.confidence);
+            const selectedDetections = [];
+            
+            for (let i = 0; i < sortedDetections.length; i++) {
+                const currentDetection = sortedDetections[i];
+                let shouldKeep = true;
+                
+                for (let j = 0; j < selectedDetections.length; j++) {
+                    const selectedDetection = selectedDetections[j];
+                    const iou = calculateIoU(currentDetection.bbox, selectedDetection.bbox);
+                    if (iou > iouThreshold) {
+                        shouldKeep = false;
+                        break;
+                    }
+                }
+                
+                if (shouldKeep) {
+                    selectedDetections.push(currentDetection);
+                }
+            }
+            
+            return selectedDetections;
+        }
+        
+        function calculateIoU(box1, box2) {
+            const x1 = Math.max(box1.x, box2.x);
+            const y1 = Math.max(box1.y, box2.y);
+            const x2 = Math.min(box1.x + box1.width, box2.x + box2.width);
+            const y2 = Math.min(box1.y + box1.height, box2.y + box2.height);
+            
+            if (x2 <= x1 || y2 <= y1) return 0;
+            
+            const intersection = (x2 - x1) * (y2 - y1);
+            const area1 = box1.width * box1.height;
+            const area2 = box2.width * box2.height;
+            const union = area1 + area2 - intersection;
+            
+            return intersection / union;
+        }
+        
+        function drawDetections(ctx, detections) {
+            detections.forEach((detection, index) => {
+                const { bbox, class: className, confidence } = detection;
+                
+                // 根据置信度设置颜色
+                const alpha = Math.min(1, confidence * 2);
+                ctx.strokeStyle = `rgba(76, 175, 80, ${alpha})`;
+                ctx.lineWidth = 3;
+                ctx.strokeRect(bbox.x, bbox.y, bbox.width, bbox.height);
+                
+                // 绘制标签
+                const label = `${className} (${(confidence * 100).toFixed(1)}%)`;
+                ctx.font = '14px Arial';
+                const textWidth = ctx.measureText(label).width;
+                
+                ctx.fillStyle = `rgba(76, 175, 80, ${alpha})`;
+                ctx.fillRect(bbox.x, bbox.y - 20, textWidth + 10, 20);
+                
+                ctx.fillStyle = 'white';
+                ctx.fillText(label, bbox.x + 5, bbox.y - 5);
+            });
+        }
+        
+        function updateStats(total, afterNMS, detections) {
+            document.getElementById('totalDetections').textContent = total;
+            document.getElementById('afterNMS').textContent = afterNMS;
+            
+            let totalPrice = 0;
+            let totalConfidence = 0;
+            
+            detections.forEach(d => {
+                totalPrice += priceMapping[d.class] || 0;
+                totalConfidence += d.confidence;
+            });
+            
+            document.getElementById('totalPrice').textContent = `¥${totalPrice.toFixed(2)}`;
+            document.getElementById('avgConfidence').textContent = 
+                detections.length > 0 ? `${((totalConfidence / detections.length) * 100).toFixed(1)}%` : '0%';
+        }
+        
+        function displayResults(detections) {
+            const resultsDiv = document.getElementById('results');
+            const listDiv = document.getElementById('detectionsList');
+            
+            resultsDiv.style.display = 'block';
+            listDiv.innerHTML = '';
+            
+            detections.forEach((detection, index) => {
+                const price = priceMapping[detection.class] || 0;
+                
+                const item = document.createElement('div');
+                item.className = 'detection-item';
+                item.innerHTML = `
+                    <strong>${detection.class}</strong> - 
+                    置信度: ${(detection.confidence * 100).toFixed(1)}% - 
+                    价格: ¥${price.toFixed(2)} - 
+                    位置: (${Math.round(detection.bbox.x)}, ${Math.round(detection.bbox.y)}) 
+                    尺寸: ${Math.round(detection.bbox.width)}×${Math.round(detection.bbox.height)}
+                `;
+                listDiv.appendChild(item);
+            });
+        }
+        
+        function clearResults() {
+            document.getElementById('results').style.display = 'none';
+            const canvas = document.getElementById('detectionCanvas');
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+        
+        window.addEventListener('load', initializeModel);
+    </script>
+</body>
+</html>
