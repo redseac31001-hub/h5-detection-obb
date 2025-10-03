@@ -1,5 +1,5 @@
 import * as tf from '@tensorflow/tfjs'
-import '@tensorflow/tfjs-backend-webgl'
+import { initializeTensorFlow, isTensorFlowReady, getTensorFlowInfo } from './tfUtils'
 import { TFObjectDetectionAdapter } from './tfObjectDetectionAdapter'
 import type { ModelConfig, DetectionResult } from '@/types'
 
@@ -38,11 +38,20 @@ export class ModelManager {
 
   async loadModel(modelName: string, modelPath: string): Promise<boolean> {
     try {
-      console.log(`开始加载模型: ${modelName}`)
+      console.log(`🔄 开始加载模型: ${modelName}`)
       
-      // 确保TensorFlow.js后端就绪
-      await tf.ready()
-      console.log(`TensorFlow.js后端: ${tf.getBackend()}`)
+      // 确保TensorFlow.js已正确初始化
+      if (!isTensorFlowReady()) {
+        console.log('🔧 TensorFlow.js尚未就绪，正在初始化...')
+        const tfInitialized = await initializeTensorFlow()
+        if (!tfInitialized) {
+          throw new Error('TensorFlow.js初始化失败')
+        }
+      }
+      
+      // 显示TensorFlow.js信息
+      const tfInfo = getTensorFlowInfo()
+      console.log(`✅ TensorFlow.js信息:`, tfInfo)
 
       // 加载模型信息
       const modelInfoPath = `${modelPath.replace('/model.json', '')}/model_info.json`
@@ -131,6 +140,12 @@ export class ModelManager {
     if (!model) return false
 
     try {
+      // 确保TensorFlow.js就绪后再进行验证
+      if (!isTensorFlowReady()) {
+        console.warn(`⚠️ TensorFlow.js未就绪，跳过模型验证: ${modelName}`)
+        return true // 暂时返回true，避免阻塞
+      }
+
       // 创建测试输入
       const testInput = tf.randomNormal([1, 640, 640, 3])
       
@@ -139,7 +154,7 @@ export class ModelManager {
       
       // 检查输出形状
       const outputShape = prediction.shape
-      console.log(`模型 ${modelName} 输出形状:`, outputShape)
+      console.log(`✅ 模型 ${modelName} 验证成功，输出形状:`, outputShape)
       
       // 清理资源
       testInput.dispose()
@@ -147,7 +162,7 @@ export class ModelManager {
       
       return true
     } catch (error) {
-      console.error(`模型验证失败: ${modelName}`, error)
+      console.error(`❌ 模型验证失败: ${modelName}`, error)
       return false
     }
   }

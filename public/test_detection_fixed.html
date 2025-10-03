@@ -74,7 +74,7 @@
         </div>
         
         <div class="image-container">
-            <img id="testImage" class="test-image" src="/test/111532922-src.jpg" 
+            <img id="testImage" class="test-image" src="/public/test/111532922-src.jpg" 
                  onload="onImageLoaded()" onerror="onImageError()">
             <canvas id="detectionCanvas" class="detection-canvas"></canvas>
         </div>
@@ -128,7 +128,7 @@
                 console.log('TensorFlow.js 后端:', tf.getBackend());
                 
                 statusDiv.innerHTML = '📥 正在加载 YOLO 模型...';
-                model = await tf.loadGraphModel('/models/yolodetection/model.json');
+                model = await tf.loadGraphModel('/public/models/yolodetection/model.json');
                 
                 console.log('✅ 模型加载成功');
                 console.log('输入形状:', model.inputs.map(input => input.shape));

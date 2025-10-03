@@ -20,7 +20,7 @@
                 await tf.ready();
                 console.log('TensorFlow.js 后端:', tf.getBackend());
                 
-                const model = await tf.loadGraphModel('/models/yolodetection/model.json');
+                const model = await tf.loadGraphModel('/public/models/yolodetection/model.json');
                 
                 output.innerHTML += '<p>✅ 模型加载成功</p>';
                 

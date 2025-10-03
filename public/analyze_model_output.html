@@ -30,7 +30,7 @@
                 statusDiv.innerHTML = '🔄 正在加载模型...';
                 await tf.ready();
                 
-                const model = await tf.loadGraphModel('/models/yolodetection/model.json');
+                const model = await tf.loadGraphModel('/public/models/yolodetection/model.json');
                 
                 statusDiv.innerHTML = '🔍 正在分析模型结构...';
                 

@@ -315,7 +315,7 @@
                 await tf.ready();
                 
                 statusDiv.innerHTML = '📥 正在加载 YOLO 模型...';
-                model = await tf.loadGraphModel('/models/yolodetection/model.json');
+                model = await tf.loadGraphModel('/public/models/yolodetection/model.json');
                 
                 console.log('✅ 模型加载成功');
                 isModelLoaded = true;

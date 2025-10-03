@@ -9,6 +9,11 @@ const router = createRouter({
       component: () => import('../views/DetectionView.vue'),
     },
     {
+      path: '/yolo-detection',
+      name: 'yoloDetection',
+      component: () => import('../components/YOLODetectionView.vue'),
+    },
+    {
       path: '/face-payment',
       name: 'facePayment',
       component: () => import('../views/FacePaymentView.vue'),
