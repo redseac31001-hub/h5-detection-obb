@@ -77,16 +77,33 @@ class ModelManager {
 
     return tf.tidy(() => {
       const img = tf.browser.fromPixels(image);
-      const resized = tf.image.resizeBilinear(img, [inputSize, inputSize]);
-      const normalized = resized.div(255.0);
+      const originalWidth = img.shape[1];
+      const originalHeight = img.shape[0];
+
+      // 1. Letterboxing 预处理
+      const scale = Math.min(inputSize / originalWidth, inputSize / originalHeight);
+      const newWidth = Math.round(originalWidth * scale);
+      const newHeight = Math.round(originalHeight * scale);
+
+      const resized = tf.image.resizeBilinear(img, [newHeight, newWidth]);
+
+      const padTop = Math.floor((inputSize - newHeight) / 2);
+      const padBottom = inputSize - newHeight - padTop;
+      const padLeft = Math.floor((inputSize - newWidth) / 2);
+      const padRight = inputSize - newWidth - padLeft;
+
+      // 使用灰色 (114) 进行填充
+      const padded = tf.pad(resized, [[padTop, padBottom], [padLeft, padRight], [0, 0]], 114);
+
+      const normalized = padded.div(255.0);
       const tensor = normalized.expandDims(0);
 
+      // 2. 推理
       const predictions = this.model!.predict(tensor) as tf.Tensor;
       const data = predictions.dataSync();
       const [batch, features, numDetections] = predictions.shape;
-      const scaleX = image.width / inputSize;
-      const scaleY = image.height / inputSize;
 
+      // 3. 解码和反向计算坐标
       const boxes: number[][] = [];
       const scores: number[] = [];
       const classIndices: number[] = [];
@@ -103,21 +120,27 @@ class ModelManager {
         }
 
         if (maxClassScore > confidenceThreshold) {
-          const xCenter = data[0 * numDetections + i] * scaleX;
-          const yCenter = data[1 * numDetections + i] * scaleY;
-          const width = data[2 * numDetections + i] * scaleX;
-          const height = data[3 * numDetections + i] * scaleY;
-          
-          const x1 = xCenter - width / 2;
-          const y1 = yCenter - height / 2;
-          boxes.push([y1, x1, y1 + height, x1 + width]);
+          const cx = data[0 * numDetections + i];
+          const cy = data[1 * numDetections + i];
+          const w = data[2 * numDetections + i];
+          const h = data[3 * numDetections + i];
+
+          // 从模型输出(0-640)反算回原始图像坐标
+          const x1 = (cx - w / 2 - padLeft) / scale;
+          const y1 = (cy - h / 2 - padTop) / scale;
+          const x2 = (cx + w / 2 - padLeft) / scale;
+          const y2 = (cy + h / 2 - padTop) / scale;
+
+          boxes.push([y1, x1, y2, x2]);
           scores.push(maxClassScore);
           classIndices.push(maxClassIndex);
         }
       }
 
+      // 4. NMS
       const nmsIndices = tf.image.nonMaxSuppression(boxes, scores, 50, iouThreshold).dataSync() as Uint8Array;
 
+      // 5. 构建最终结果
       const finalDetections: Detection[] = [];
       for (let i = 0; i < nmsIndices.length; i++) {
         const index = nmsIndices[i];
@@ -125,7 +148,12 @@ class ModelManager {
         finalDetections.push({
           class: classNames[classIndices[index]],
           confidence: scores[index],
-          bbox: { x: x1, y: y1, width: x2 - x1, height: y2 - y1 },
+          bbox: {
+            x: x1,
+            y: y1,
+            width: x2 - x1,
+            height: y2 - y1,
+          },
         });
       }
       
