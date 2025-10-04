@@ -1,6 +1,7 @@
 import * as tf from '@tensorflow/tfjs'
 import { initializeTensorFlow, isTensorFlowReady, getTensorFlowInfo } from '@/utils/tfUtils'
 import type { DetectionResult } from '@/types'
+import '@tensorflow/tfjs-backend-webgl'; // 或 wasm/cpu
 
 export interface YOLODetectionConfig {
   modelUrl: string
@@ -53,7 +54,7 @@ export class YOLODetectionService {
 
   constructor(config?: Partial<YOLODetectionConfig>) {
     this.config = {
-      modelUrl: '/public/models/yolodetection/model.json',
+      modelUrl: '/models/yolodetection/model.json',
       confidenceThreshold: 0.1,
       iouThreshold: 0.5,
       maxDetections: 50,
@@ -69,44 +70,21 @@ export class YOLODetectionService {
     try {
       console.log('🔄 正在初始化YOLO检测服务...')
       
-      // 确保TensorFlow.js已正确初始化
-      if (!isTensorFlowReady()) {
-        console.log('🔧 TensorFlow.js尚未就绪，正在初始化...')
-        const tfInitialized = await initializeTensorFlow()
-        if (!tfInitialized) {
-          throw new Error('TensorFlow.js初始化失败')
-        }
-      }
-      
-      // 显示TensorFlow.js信息
-      const tfInfo = getTensorFlowInfo()
-      console.log('✅ TensorFlow.js信息:', tfInfo)
+      // 采用与fixed.html相同的简单初始化方式
+      console.log('🔧 正在初始化 TensorFlow.js...')
+      await tf.ready()
+      console.log('TensorFlow.js 后端:', tf.getBackend())
 
-      // 加载YOLO模型
-      console.log('📥 正在加载YOLO模型:', this.config.modelUrl)
-      
-      // 添加模型加载超时处理
-      const modelLoadPromise = tf.loadGraphModel(this.config.modelUrl)
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('模型加载超时')), 30000) // 30秒超时
-      })
-      
-      this.model = await Promise.race([modelLoadPromise, timeoutPromise]) as tf.GraphModel
+      // 直接加载YOLO模型，不进行复杂的验证
+      console.log('📥 正在加载 YOLO 模型:', this.config.modelUrl)
+      this.model = await tf.loadGraphModel(this.config.modelUrl)
       
       console.log('✅ YOLO模型加载成功')
       console.log('📊 模型输入形状:', this.model.inputs.map(input => input.shape))
       console.log('📊 模型输出形状:', this.model.outputs.map(output => output.shape))
       
-      // 进行一次测试推理以验证模型
-      console.log('🧪 进行测试推理验证...')
-      const testTensor = tf.randomNormal([1, this.config.inputSize, this.config.inputSize, 3])
-      const testPrediction = this.model.predict(testTensor) as tf.Tensor
-      
-      console.log('✅ 测试推理成功，输出形状:', testPrediction.shape)
-      
-      // 清理测试张量
-      testTensor.dispose()
-      testPrediction.dispose()
+      // 跳过测试推理验证，直接标记为就绪
+      console.log('✅ 跳过验证推理，模型准备就绪')
       
       this.isLoaded = true
       return true

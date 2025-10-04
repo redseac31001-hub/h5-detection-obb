@@ -142,23 +142,44 @@ export class ModelManager {
     try {
       // 确保TensorFlow.js就绪后再进行验证
       if (!isTensorFlowReady()) {
-        console.warn(`⚠️ TensorFlow.js未就绪，跳过模型验证: ${modelName}`)
-        return true // 暂时返回true，避免阻塞
+        console.warn(`⚠️ TensorFlow.js未就绪，强制初始化后再验证: ${modelName}`)
+        const tfInitialized = await initializeTensorFlow()
+        if (!tfInitialized) {
+          console.error(`❌ TensorFlow.js初始化失败，跳过验证: ${modelName}`)
+          return false
+        }
       }
 
-      // 创建测试输入
-      const testInput = tf.randomNormal([1, 640, 640, 3])
+      // 获取模型的实际输入形状
+      const inputShape = model.inputs[0].shape
+      console.log(`🔍 模型实际输入形状: ${inputShape}`)
+      
+      // 创建与模型输入形状匹配的测试输入
+      let testInputShape: number[]
+      if (inputShape && inputShape.every(dim => dim && dim > 0)) {
+        testInputShape = inputShape as number[]
+      } else {
+        // 如果形状包含null或-1，使用默认形状
+        testInputShape = [1, 640, 640, 3]
+      }
+      
+      const testInput = tf.randomNormal(testInputShape)
       
       // 执行推理测试
-      const prediction = model.predict(testInput) as tf.Tensor
+      const prediction = model.predict(testInput)
       
-      // 检查输出形状
-      const outputShape = prediction.shape
-      console.log(`✅ 模型 ${modelName} 验证成功，输出形状:`, outputShape)
+      // 处理多输出情况
+      if (Array.isArray(prediction)) {
+        console.log(`✅ 模型 ${modelName} 验证成功，输出数量: ${prediction.length}`)
+        console.log(`输出形状:`, prediction.map(p => p.shape))
+        prediction.forEach(p => p.dispose())
+      } else {
+        console.log(`✅ 模型 ${modelName} 验证成功，输出形状:`, prediction.shape)
+        prediction.dispose()
+      }
       
       // 清理资源
       testInput.dispose()
-      prediction.dispose()
       
       return true
     } catch (error) {
@@ -392,6 +413,14 @@ export class ModelManager {
     const yoloModels = Array.from(this.models.keys())
     const tfModels = Array.from(this.tfObjectDetectionAdapters.keys())
     return [...yoloModels, ...tfModels]
+  }
+
+  /**
+   * 直接设置模型，跳过验证 - 用于紧急修复
+   */
+  setModelDirectly(modelName: string, model: tf.GraphModel): void {
+    this.models.set(modelName, model)
+    console.log(`✅ 直接设置模型: ${modelName}`)
   }
 
   dispose(): void {

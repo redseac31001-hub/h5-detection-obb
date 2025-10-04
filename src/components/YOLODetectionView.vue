@@ -151,7 +151,7 @@ const imageLoaded = ref(false)
 
 const confidenceThreshold = ref(0.1)
 const iouThreshold = ref(0.5)
-const testImageSrc = ref('/public/test/111532922-src.jpg')
+const testImageSrc = ref('/test/111532922-src.jpg')
 
 const detections = ref<DetectionResult[]>([])
 const stats = ref({
@@ -336,7 +336,7 @@ function onFileSelected(event: Event) {
 }
 
 function useTestImage() {
-  testImageSrc.value = '/public/test/111532922-src.jpg'
+  testImageSrc.value = '/test/111532922-src.jpg'
   clearResults()
 }
 
