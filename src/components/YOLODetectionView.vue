@@ -1,7 +1,7 @@
 <template>
   <div class="yolo-detection-container">
     <div class="detection-header">
-      <h2>🍽️ 餐具AI识别系统 (已优化)</h2>
+      <h2>🍽️ 餐具AI识别系统 (可配置版)</h2>
       <div class="status-indicator" :class="statusClass">
         {{ statusMessage }}
       </div>
@@ -19,11 +19,7 @@
         <span>{{ iouThreshold.toFixed(2) }}</span>
       </div>
       <div class="control-buttons">
-        <button 
-          @click="startDetection" 
-          :disabled="!isReady || isDetecting"
-          class="btn-success"
-        >
+        <button @click="startDetection" :disabled="!isReady || isDetecting" class="btn-success">
           {{ isDetecting ? '检测中...' : (isReady ? '开始检测' : '环境准备中...') }}
         </button>
         <button @click="selectImage" class="btn-outline">📷 选择图片</button>
@@ -53,11 +49,10 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { initialize, detectObjects } from '@/services/tfModelManager'
+// 1. 导入新的模型管理器和配置
+import { modelManager } from '@/services/tfModelManager'
+import { defaultModelConfig } from '@/models.config'
 import type { Detection } from '@/services/tfModelManager'
-
-// --- 优化后的架构 ---
-// UI组件，只负责视图和用户交互
 
 const isReady = ref(false)
 const isDetecting = ref(false)
@@ -65,12 +60,12 @@ const statusMessage = ref('等待初始化...')
 const imageSrc = ref('/test/111532922-src.jpg')
 const detections = ref<Detection[]>([])
 
+const confidenceThreshold = ref(0.4)
+const iouThreshold = ref(0.5)
+
 const testImage = ref<HTMLImageElement>()
 const detectionCanvas = ref<HTMLCanvasElement>()
 const fileInput = ref<HTMLInputElement>()
-
-const confidenceThreshold = ref(0.4)
-const iouThreshold = ref(0.5)
 
 const statusClass = computed(() => {
   if (isDetecting.value || !isReady.value) return 'status-loading'
@@ -79,15 +74,17 @@ const statusClass = computed(() => {
 
 onMounted(async () => {
   statusMessage.value = '正在初始化AI环境...'
-  console.log('🚀 组件挂载，开始全局初始化...')
   try {
-    await initialize()
-    isReady.value = true
-    statusMessage.value = 'AI环境已就绪'
-    console.log('✅ 全局初始化成功')
+    // 2. 使用默认配置初始化模型管理器
+    await modelManager.initialize(defaultModelConfig)
+    isReady.value = modelManager.isReady()
+    if (isReady.value) {
+      statusMessage.value = 'AI环境已就绪'
+      console.log('✅ 可配置的ModelManager初始化成功')
+    }
   } catch (error) {
     statusMessage.value = `初始化失败: ${error.message}`
-    console.error('❌ 全局初始化失败:', error)
+    console.error('❌ 初始化失败:', error)
   }
 })
 
@@ -97,7 +94,8 @@ async function startDetection() {
   isDetecting.value = true
   statusMessage.value = '正在检测...'
   try {
-    const results = await detectObjects(testImage.value, {
+    // 3. 调用模型管理器的检测方法
+    const results = await modelManager.detectObjects(testImage.value, {
       confidenceThreshold: confidenceThreshold.value,
       iouThreshold: iouThreshold.value,
     })
@@ -155,14 +153,15 @@ function clearResults() {
 </script>
 
 <style scoped>
-/* 样式与极限测试模式类似，保持简洁 */
+/* 样式与之前保持一致 */
 .yolo-detection-container { max-width: 800px; margin: auto; padding: 20px; font-family: sans-serif; }
 .detection-header { text-align: center; margin-bottom: 20px; }
 .status-indicator { padding: 8px; border-radius: 4px; display: inline-block; font-weight: bold; }
 .status-loading { background: #e3f2fd; color: #1976d2; }
 .status-success { background: #e8f5e8; color: #2e7d32; }
-.controls-panel { background: #f5f5f5; padding: 15px; border-radius: 8px; margin-bottom: 20px; text-align: center; }
-.control-buttons { display: flex; gap: 10px; justify-content: center; }
+.controls-panel { background: #f5f5f5; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
+.control-group { display: flex; align-items: center; gap: 15px; margin-bottom: 10px; }
+.control-buttons { display: flex; gap: 10px; justify-content: center; margin-top: 15px; }
 .btn-success, .btn-secondary, .btn-outline { border: 1px solid; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-size: 14px; }
 .btn-success { background: #4caf50; color: white; border-color: #4caf50; }
 .btn-secondary { background: #757575; color: white; border-color: #757575; }
